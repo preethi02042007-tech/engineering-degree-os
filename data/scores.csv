@@ -1,0 +1,6 @@
+semester,course_code,course_title,assessment_type,scored_marks,max_marks,grade
+1,MA101,Engineering Mathematics I,IA1,15,20,B
+1,PH101,Engineering Physics,IA1,16,20,B
+1,CS101,Programming in C,Assignment,8,10,A
+1,MA101,Engineering Mathematics I,IA2,0,20,Pending
+1,PH101,Engineering Physics,Lab Evaluation,0,25,Pending

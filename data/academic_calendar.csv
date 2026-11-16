@@ -1,0 +1,5 @@
+date,event_name,category,academic_year,semester,notes
+2026-11-14,Holiday,Holiday,2026-27,1,Sample holiday
+2026-11-20,Last Working Day,Academic,2026-27,1,Sample academic event
+2026-12-05,Internal Assessment,Assessment,2026-27,1,Sample assessment date
+2026-12-25,Christmas,Holiday,2026-27,1,Sample holiday
