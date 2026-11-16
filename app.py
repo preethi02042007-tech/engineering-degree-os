@@ -7,6 +7,7 @@ Data Persistence: CSV files under /data directory.
 
 import os
 import datetime
+import re
 import pandas as pd
 import streamlit as st
 
@@ -145,7 +146,10 @@ with st.sidebar:
     
     # Active Academic Status Quick View
     current_sem_row = semesters_df[semesters_df["status"] == "In Progress"] if not semesters_df.empty and "status" in semesters_df.columns else pd.DataFrame()
-    current_sem_num = int(current_sem_row["semester"].values[0]) if not current_sem_row.empty else 5
+    if not current_sem_row.empty:
+        current_sem_num = int(pd.to_numeric(current_sem_row["semester"], errors="coerce").dropna().iloc[0])
+    else:
+        current_sem_num = 1
     
     st.markdown(f"**Current Status:** Semester {current_sem_num}")
     st.markdown(f"**Target Degree:** B.Tech CSE (4 Yrs)")
@@ -195,7 +199,8 @@ if selected_page == "1. Dashboard":
     # Metric Row 1
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Current Semester", f"Semester {current_sem_num}", "Year 3 (Active)")
+        current_year = (current_sem_num + 1) // 2
+        st.metric("Current Semester", f"Semester {current_sem_num}", f"Year {current_year} (Active)")
     with col2:
         st.metric("Degree Completion", f"{degree_completion_pct}%", f"{completed_credits} / {total_required_credits} Credits")
     with col3:
@@ -312,7 +317,8 @@ elif selected_page == "2. Semesters 1-8":
         st.markdown("---")
         st.markdown("#### Filterable Semester Details")
         sem_list = sorted(semesters_df["semester"].unique().tolist())
-        selected_sem = st.selectbox("Select Semester to inspect:", options=sem_list, index=4)
+        current_sem_index = sem_list.index(current_sem_num) if current_sem_num in sem_list else 0
+        selected_sem = st.selectbox("Select Semester to inspect:", options=sem_list, index=current_sem_index)
 
         sem_info = semesters_df[semesters_df["semester"] == selected_sem].iloc[0]
         st.markdown(f"### Semester {selected_sem}: {sem_info['title']}")
@@ -425,7 +431,7 @@ elif selected_page == "5. Academic / Leave Calendar":
     st.markdown('<div class="sub-header">Track internal assessment windows, semester examinations, and university holidays</div>', unsafe_allow_html=True)
 
     if calendar_df.empty:
-        st.warning("Calendar records not found in `data/calendar.csv`.")
+        st.warning("Calendar records not found in `data/academic_calendar.csv`.")
     else:
         col_c1, col_c2, col_c3 = st.columns(3)
         with col_c1:
@@ -749,7 +755,10 @@ elif selected_page == "10. Ask Degree AI":
     st.markdown('<div class="main-header">Ask Degree AI</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Your student academic assistant for degree questions, syllabus lookup, and progress queries</div>', unsafe_allow_html=True)
 
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    try:
+        gemini_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
+    except Exception:
+        gemini_key = os.getenv("GEMINI_API_KEY", "")
 
     # Quick Suggestion Prompts
     st.markdown("**Suggested Quick Questions:**")
@@ -821,16 +830,44 @@ elif selected_page == "10. Ask Degree AI":
             local_response = (
                 f"**Degree Completion Progress:**\n\n"
                 f"• **Completed Credits:** {comp_cr} / {tot_req} credits ({pct}%)\n"
-                f"• **Currently In Progress (Semester 5):** {in_prog_cr} credits\n"
+                f"• **Currently In Progress (Semester {current_sem_num}):** {in_prog_cr} credits\n"
                 f"• **Remaining Credits to Graduate:** {tot_req - comp_cr} credits"
             )
 
-        elif "semester 5" in query_lower or "current semester" in query_lower:
+        elif "current semester" in query_lower:
             handled_locally = True
+            if not semesters_df.empty and not courses_df.empty:
+                course_semesters = pd.to_numeric(courses_df["semester"], errors="coerce")
+                current_courses = courses_df[course_semesters == current_sem_num]
+                c_list = [
+                    f"• **{r.get('course_code', 'Course')}**: {r.get('title', 'Untitled')} "
+                    f"({r.get('credits', 0)} Credits, {r.get('category', 'Uncategorized')})"
+                    for _, r in current_courses.iterrows()
+                ]
+                local_response = f"**Your Current Semester: Semester {current_sem_num}**\n\n"
+                if c_list:
+                    local_response += f"**Registered Courses ({len(current_courses)} total):**\n\n" + "\n".join(c_list)
+                else:
+                    local_response += "No courses are currently registered for this semester in courses.csv."
+            elif not semesters_df.empty:
+                local_response = f"Your current semester is **Semester {current_sem_num}**. Course data is not available."
+            else:
+                local_response = "Current semester information is not available. Check semesters.csv."
+
+        elif re.search(r"\bsemester\s*[1-8]\b", query_lower):
+            handled_locally = True
+            semester_match = re.search(r"\bsemester\s*([1-8])\b", query_lower)
+            requested_semester = int(semester_match.group(1))
             if not courses_df.empty:
-                sem5_c = courses_df[courses_df["semester"] == 5]
-                c_list = [f"• **{r['course_code']}**: {r['title']} ({r['credits']} Credits, {r['category']})" for _, r in sem5_c.iterrows()]
-                local_response = f"**Semester 5 Registered Courses ({len(sem5_c)} total):**\n\n" + "\n".join(c_list)
+                course_semesters = pd.to_numeric(courses_df["semester"], errors="coerce")
+                requested_courses = courses_df[course_semesters == requested_semester]
+                c_list = [
+                    f"• **{r.get('course_code', 'Course')}**: {r.get('title', 'Untitled')} "
+                    f"({r.get('credits', 0)} Credits, {r.get('category', 'Uncategorized')})"
+                    for _, r in requested_courses.iterrows()
+                ]
+                local_response = f"**Semester {requested_semester} Registered Courses ({len(requested_courses)} total):**\n\n"
+                local_response += "\n".join(c_list) if c_list else "No courses are registered for this semester in courses.csv."
             else:
                 local_response = "No course data available."
 
@@ -873,7 +910,7 @@ elif selected_page == "10. Ask Degree AI":
                 st.info(
                     "Displaying local knowledge summary instead:\n\n"
                     f"• **Degree:** B.Tech Computer Science and Engineering\n"
-                    f"• **Active Semester:** Semester 5\n"
+                    f"• **Active Semester:** Semester {current_sem_num}\n"
                     f"• **Completed Credits:** {courses_df[courses_df['status']=='Completed']['credits'].sum() if not courses_df.empty else 84} / 160\n"
                     "• Try asking about your: 'next assessment', 'next holiday', 'semester 5 courses', 'credits progress', or 'checklist'."
                 )
@@ -885,10 +922,10 @@ elif selected_page == "10. Ask Degree AI":
                     context_data = f"""
                     Degree Information:
                     - Programme: B.Tech CSE (4 Years, 160 Credits)
-                    - Current Semester: 5 (In Progress)
+                    - Current Semester: {current_sem_num} (In Progress)
                     - Completed Credits: {courses_df[courses_df['status']=='Completed']['credits'].sum() if not courses_df.empty else 84}
                     - Assessments: {assessments_df.to_dict(orient='records')[:8] if not assessments_df.empty else []}
-                    - Courses: {courses_df[courses_df['semester']==5].to_dict(orient='records') if not courses_df.empty else []}
+                    - Courses: {courses_df[pd.to_numeric(courses_df['semester'], errors='coerce')==current_sem_num].to_dict(orient='records') if not courses_df.empty else []}
                     - Checklist: {checklist_df.to_dict(orient='records') if not checklist_df.empty else []}
                     """
                     prompt = f"You are the Degree OS Academic Advisor. Answer the student's question based strictly on their curriculum context:\n\nContext:\n{context_data}\n\nQuestion:\n{user_query}"
@@ -915,7 +952,7 @@ elif selected_page == "11. Data Admin":
             "semesters.csv",
             "assessments.csv",
             "scores.csv",
-            "calendar.csv",
+            "academic_calendar.csv",
             "plan_checklist.csv",
             "university_syllabus.csv"
         ]
